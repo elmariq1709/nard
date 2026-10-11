@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<title>Длинные нарды</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Manrope:wght@400;600;700&display=swap">
+<style>
+/* Layout: one-screen game — header with score, the inlaid board as the hero, a control strip of dice + actions under it, rules folded below. Single dark "walnut table" look by choice. */
+:root{
+  --bg:#17100b;
+  --panel:#231710;
+  --line:#4a3220;
+  --fg:#f2e7d3;
+  --muted:#b8a383;
+  --accent:#e2b65e;
+  --ink:#24160d;
+  --display:"Unbounded","Manrope",system-ui,sans-serif;
+  --body:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.45}
+.app{max-width:640px;margin:0 auto;padding-block:12px 28px;padding-inline:16px;display:flex;flex-direction:column;gap:12px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{margin:0;font-family:var(--display);font-weight:700;font-size:clamp(19px,5.4vw,26px);letter-spacing:.01em;text-wrap:balance}
+h1 small{display:block;font-family:var(--body);font-weight:600;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:2px}
+.score{display:flex;align-items:center;gap:10px;font-family:var(--display);font-size:15px;font-variant-numeric:tabular-nums}
+.score .lbl{font-family:var(--body);font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.board{border-radius:14px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.board svg{width:100%;height:auto;display:block;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none}
+.board [data-a]{cursor:pointer}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:12px}
+.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.dice{display:flex;gap:8px;min-height:42px;align-items:center}
+.die{width:40px;height:40px;border-radius:9px;background:linear-gradient(145deg,#fbf3e2,#e2d2b2);display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);padding:6px;box-sizing:border-box;box-shadow:inset 0 -2px 0 rgba(0,0,0,.18),0 2px 6px rgba(0,0,0,.35);transition:opacity .2s,transform .2s}
+.die.used{opacity:.28;transform:scale(.9)}
+.die.bot{background:linear-gradient(145deg,#4a2f1e,#2b1a10);box-shadow:inset 0 0 0 1.5px var(--accent),0 2px 6px rgba(0,0,0,.35)}
+.die.bot .pip{background:var(--accent)}
+.pip{width:7px;height:7px;border-radius:50%;background:var(--ink);place-self:center}
+.status{flex:1;min-width:0;font-weight:600}
+.status .sub{display:block;font-weight:400;font-size:13px;color:var(--muted)}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;font-weight:700;border-radius:10px;padding:11px 16px;border:1px solid var(--accent);background:transparent;color:var(--fg);cursor:pointer;min-height:44px}
+button.primary{background:var(--accent);color:var(--ink)}
+button:disabled{opacity:.35;cursor:default}
+button:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+button.ghost{border-color:var(--line);color:var(--muted);padding:8px 12px;min-height:36px;font-size:13px}
+details{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+summary{cursor:pointer;font-weight:700}
+details ul{margin:10px 0 2px;padding-left:18px;color:var(--muted);display:grid;gap:6px;max-width:65ch}
+details b{color:var(--fg);font-weight:600}
+.over{position:fixed;inset:0;background:rgba(10,6,3,.72);display:grid;place-items:center;padding:16px;z-index:5}
+.card{background:var(--panel);border:1px solid var(--accent);border-radius:16px;padding:24px;max-width:340px;width:100%;text-align:center;display:flex;flex-direction:column;gap:12px}
+.card h2{margin:0;font-family:var(--display);font-size:24px;text-wrap:balance}
+.card p{margin:0;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.die{transition:none}}
+</style>
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}*{box-sizing:border-box}</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Длинные нарды<small>вы — белые · против бота</small></h1>
+    <div class="score"><span class="lbl">Вы</span><span id="sc0">0</span>:<span id="sc1">0</span><span class="lbl">Бот</span>
+      <button class="ghost" id="newBtn" type="button">Новая партия</button></div>
+  </header>
+
+  <div class="board" id="board" aria-label="Доска для нард"></div>
+
+  <div class="panel">
+    <div class="row">
+      <div class="dice" id="dice"></div>
+      <div class="status" id="status" aria-live="polite"></div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="rollBtn" type="button">Бросить кубики</button>
+      <button id="undoBtn" type="button">Отменить</button>
+      <button class="primary" id="doneBtn" type="button">Готово</button>
+    </div>
+  </div>
+
+  <details>
+    <summary>Правила длинных нард</summary>
+    <ul>
+      <li><b>Цель:</b> провести все 15 шашек по кругу против часовой стрелки в свой дом (нижний правый угол) и выбросить их с доски первым.</li>
+      <li><b>Ход:</b> каждый кубик — отдельный ход одной шашки. Дубль играется четыре раза.</li>
+      <li><b>Занятые пункты:</b> нельзя ставить шашку туда, где стоит хотя бы одна шашка соперника. Бить шашки нельзя.</li>
+      <li><b>С головы</b> (стартовый пункт) за ход можно снять только одну шашку. Исключение: первый бросок 6-6, 4-4 или 3-3 — можно две.</li>
+      <li><b>Блок из шести</b> пунктов подряд строить нельзя, если впереди него нет ни одной шашки соперника.</li>
+      <li><b>Выброс</b> начинается, когда все 15 шашек в доме. Большим числом можно выбросить шашку, только если дальше от выхода шашек нет.</li>
+      <li><b>Обязательность:</b> если можно сыграть оба кубика, их нужно сыграть. Если только один — по возможности больший.</li>
+      <li><b>Марс:</b> если соперник не успел выбросить ни одной шашки, победа считается за две.</li>
+    </ul>
+  </details>
+</div>
+
+<div class="over" id="over" hidden>
+  <div class="card">
+    <h2 id="overTitle"></h2>
+    <p id="overText"></p>
+    <button class="primary" id="againBtn" type="button">Сыграть ещё</button>
+  </div>
+</div>
+
+<script>
+/* Telegram Mini App hooks — work once telegram-web-app.js is included on the hosted page */
+const tg = window.Telegram && window.Telegram.WebApp;
+try {
+  if (tg) {
+    tg.ready(); tg.expand();
+    tg.setHeaderColor && tg.setHeaderColor('#17100b');
+    tg.setBackgroundColor && tg.setBackgroundColor('#17100b');
+    tg.disableVerticalSwipes && tg.disableVerticalSwipes();
+  }
+} catch (e) {}
+function haptic(kind){ try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(kind || 'light'); } catch (e) {} }
+
+/*LOGIC*/
+// Board: b[0..23] absolute points. >0 white count, <0 black count.
+// Each player has own path 0..23 (0 = head). White abs = rel, black abs = rel+12.
+const absP = (r, pl) => pl === 0 ? r : (r + 12) % 24;
+function cnt(b, r, pl){ const v = b[absP(r, pl)]; return pl === 0 ? (v > 0 ? v : 0) : (v < 0 ? -v : 0); }
+function oppAt(b, a, pl){ const v = b[a]; return pl === 0 ? v < 0 : v > 0; }
+function allHome(s, pl){ for (let r = 0; r < 18; r++) if (cnt(s.b, r, pl)) return false; return true; }
+function key(s){ return s.pl + '|' + s.b.join(',') + '|' + s.off.join(',') + '|' + s.dice.join('') + '|' + s.hm; }
+function apply(s, m){
+  const b = s.b.slice(), off = s.off.slice(), sg = s.pl === 0 ? 1 : -1;
+  b[absP(m.from, s.pl)] -= sg;
+  if (m.to < 24) b[absP(m.to, s.pl)] += sg; else off[s.pl]++;
+  const dice = s.dice.slice(); dice.splice(dice.indexOf(m.die), 1);
+  return { b, off, dice, pl: s.pl, hm: s.hm + (m.from === 0 ? 1 : 0), hl: s.hl };
+}
+// Six own points in a row with no opponent checker ahead of them is forbidden.
+function blockViolation(s, pl){
+  const opp = 1 - pl; let run = 0;
+  for (let r = 0; r < 24; r++){
+    const v = s.b[absP(r, opp)];
+    if (pl === 0 ? v > 0 : v < 0){
+      run++;
+      if (run >= 6){
+        let ok = false;
+        for (let q = r + 1; q < 24; q++) if (cnt(s.b, q, opp)){ ok = true; break; }
+        if (!ok) return true;
+      }
+    } else run = 0;
+  }
+  return false;
+}
+function genMoves(s){
+  const pl = s.pl, res = [], vals = [...new Set(s.dice)], home = allHome(s, pl);
+  for (let p = 0; p < 24; p++){
+    if (!cnt(s.b, p, pl)) continue;
+    if (p === 0 && s.hm >= s.hl) continue;
+    for (const d of vals){
+      const t = p + d;
+      if (t < 24){
+        if (oppAt(s.b, absP(t, pl), pl)) continue;
+        const m = { from: p, to: t, die: d };
+        if (blockViolation(apply(s, m), pl)) continue;
+        res.push(m);
+      } else {
+        if (!home) continue;
+        if (t > 24){
+          let back = false;
+          for (let q = 18; q < p; q++) if (cnt(s.b, q, pl)){ back = true; break; }
+          if (back) continue;
+        }
+        res.push({ from: p, to: 24, die: d });
+      }
+    }
+  }
+  return res;
+}
+const memo = new Map();
+function maxDepth(s){
+  const k = key(s); if (memo.has(k)) return memo.get(k);
+  let best = 0;
+  for (const m of genMoves(s)){
+    const d = 1 + maxDepth(apply(s, m));
+    if (d > best) best = d;
+    if (best === s.dice.length) break;
+  }
+  memo.set(k, best); return best;
+}
+function legal(s){
+  const md = maxDepth(s); if (!md) return [];
+  let ms = genMoves(s).filter(m => 1 + maxDepth(apply(s, m)) === md);
+  if (md === 1 && s.dice.length === 2 && s.dice[0] !== s.dice[1]){
+    const hi = Math.max(...s.dice), h = ms.filter(m => m.die === hi);
+    if (h.length) ms = h;
+  }
+  return ms;
+}
+function evaluate(s, pl){
+  const opp = 1 - pl; let sc = 0, pips = 0, points = 0;
+  for (let p = 0; p < 24; p++){
+    const c = cnt(s.b, p, pl);
+    pips += c * (24 - p);
+    if (c){ points++; if (p > 0 && c > 3) sc -= (c - 3) * 0.7; }
+  }
+  sc -= pips; sc += s.off[pl] * 3;
+  if (!allHome(s, pl)) sc += points * 1.3;
+  // reward walls in front of opponent checkers
+  let oppMin = 24; for (let r = 0; r < 24; r++) if (cnt(s.b, r, opp)){ oppMin = r; break; }
+  let run = 0;
+  for (let r = 0; r < 24; r++){
+    const v = s.b[absP(r, opp)];
+    if ((pl === 0 ? v > 0 : v < 0) && r > oppMin){ run++; sc += run * 0.9; } else run = 0;
+  }
+  return sc + Math.random() * 0.8;
+}
+function bestSequence(s){
+  memo.clear();
+  const seen = new Set(); let best = null, bestScore = -Infinity;
+  (function rec(st, path){
+    const k = key(st); if (seen.has(k)) return; seen.add(k);
+    const ms = legal(st);
+    if (!ms.length){
+      const sc = evaluate(st, st.pl);
+      if (sc > bestScore){ bestScore = sc; best = path; }
+      return;
+    }
+    for (const m of ms) rec(apply(st, m), path.concat([m]));
+  })(s, []);
+  return best || [];
+}
+function freshBoard(){ const b = new Array(24).fill(0); b[0] = 15; b[12] = -15; return b; }
+/*END*/
+
+/* ---------- Game state ---------- */
+const G = { b: freshBoard(), off: [0, 0], turn: 0, dice: [], rolled: [], hm: 0, hl: 1, first: [true, true],
+  phase: 'roll', sel: null, snap: null, score: [0, 0], msg: '', sub: '', botLanded: new Set(), rolling: null };
+try { const sv = JSON.parse(localStorage.getItem('nardy-score') || 'null'); if (Array.isArray(sv)) G.score = sv; } catch (e) {}
+const cur = () => ({ b: G.b, off: G.off, dice: G.dice, pl: G.turn, hm: G.hm, hl: G.hl });
+const setState = s => { G.b = s.b; G.off = s.off; G.dice = s.dice; G.hm = s.hm; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const roll2 = () => [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)];
+let gameId = 0;
+
+function beginTurn(d){
+  G.rolled = d;
+  G.dice = d[0] === d[1] ? [d[0], d[0], d[0], d[0]] : [d[0], d[1]];
+  G.hm = 0;
+  G.hl = (G.first[G.turn] && d[0] === d[1] && [3, 4, 6].includes(d[0])) ? 2 : 1;
+  memo.clear();
+}
+async function animateRoll(){
+  for (let i = 0; i < 7; i++){ G.rolling = roll2(); renderDice(); await sleep(55); }
+  G.rolling = null;
+}
+
+function newGame(){
+  gameId++;
+  Object.assign(G, { b: freshBoard(), off: [0, 0], dice: [], rolled: [], hm: 0, hl: 1, first: [true, true], sel: null, snap: null, botLanded: new Set() });
+  document.getElementById('over').hidden = true;
+  G.turn = Math.random() < 0.5 ? 0 : 1;
+  if (G.turn === 0){ G.phase = 'roll'; G.msg = 'Вы ходите первым'; G.sub = 'Бросьте кубики'; render(); }
+  else { G.msg = 'Первым ходит бот'; G.sub = ''; render(); botTurn(); }
+}
+
+async function humanRoll(){
+  if (G.phase !== 'roll') return;
+  G.phase = 'rolling'; G.botLanded = new Set(); render();
+  await animateRoll();
+  beginTurn(roll2());
+  G.snap = { b: G.b.slice(), off: G.off.slice(), dice: G.dice.slice(), hm: G.hm };
+  haptic('medium');
+  afterHumanStep();
+}
+function afterHumanStep(){
+  const ms = legal(cur());
+  if (G.off[0] === 15) return gameOver(0);
+  if (ms.length){ G.phase = 'move'; G.msg = 'Ваш ход'; G.sub = 'Нажмите на шашку, затем на подсвеченный пункт'; }
+  else { G.phase = 'confirm'; G.msg = G.dice.length === (G.rolled[0] === G.rolled[1] ? 4 : 2) ? 'Ходов нет' : 'Ход сделан'; G.sub = G.dice.length ? 'Оставшиеся кубики сыграть нельзя' : 'Нажмите «Готово» или отмените'; }
+  render();
+}
+function humanMove(m){
+  setState(apply(cur(), m)); G.sel = null; haptic('light'); afterHumanStep();
+}
+function undo(){
+  if (!G.snap || (G.phase !== 'move' && G.phase !== 'confirm')) return;
+  G.b = G.snap.b.slice(); G.off = G.snap.off.slice(); G.dice = G.snap.dice.slice(); G.hm = G.snap.hm; G.sel = null;
+  afterHumanStep();
+}
+function done(){
+  if (G.phase !== 'confirm') return;
+  G.first[0] = false; G.snap = null; botTurn();
+}
+async function botTurn(){
+  const id = gameId;
+  G.turn = 1; G.phase = 'bot'; G.dice = []; G.msg = 'Ходит бот…'; G.sub = ''; render();
+  await sleep(550); if (id !== gameId) return;
+  await animateRoll(); if (id !== gameId) return;
+  beginTurn(roll2()); G.botLanded = new Set(); render();
+  await sleep(450); if (id !== gameId) return;
+  const seq = bestSequence(cur());
+  if (!seq.length){ G.msg = 'У бота нет ходов'; render(); await sleep(1000); if (id !== gameId) return; }
+  for (const m of seq){
+    setState(apply(cur(), m));
+    if (m.to < 24) G.botLanded.add(absP(m.to, 1));
+    render(); await sleep(430); if (id !== gameId) return;
+  }
+  G.first[1] = false;
+  if (G.off[1] === 15) return gameOver(1);
+  G.turn = 0; G.phase = 'roll'; G.dice = []; G.msg = 'Ваш ход'; G.sub = 'Бросьте кубики'; render();
+}
+function gameOver(w){
+  const mars = G.off[1 - w] === 0, pts = mars ? 2 : 1;
+  G.score[w] += pts; G.phase = 'over'; G.turn = w;
+  try { localStorage.setItem('nardy-score', JSON.stringify(G.score)); } catch (e) {}
+  render();
+  document.getElementById('overTitle').textContent = w === 0 ? (mars ? 'Марс! Победа' : 'Победа!') : (mars ? 'Марс от бота' : 'Бот выиграл');
+  document.getElementById('overText').textContent = (w === 0 ? 'Вы получаете ' : 'Бот получает ') + pts + (pts === 2 ? ' очка' : ' очко') + '. Счёт ' + G.score[0] + ' : ' + G.score[1] + '.';
+  document.getElementById('over').hidden = false;
+  haptic('heavy');
+}
+
+/* ---------- Board rendering (SVG) ---------- */
+const colX = c => c * 40 + 20 + (c >= 6 ? 40 : 0);
+const pos = a => a < 12 ? { x: colX(11 - a), top: true, col: 11 - a } : { x: colX(a - 12), top: false, col: a - 12 };
+function checker(x, y, pl, extra){
+  return pl === 0
+    ? `<circle cx="${x}" cy="${y}" r="18" fill="url(#gw)" stroke="${extra || '#8c7450'}" stroke-width="${extra ? 3 : 1.5}"/><circle cx="${x}" cy="${y}" r="11" fill="none" stroke="#a88b5e" stroke-opacity=".45" stroke-width="1.2"/>`
+    : `<circle cx="${x}" cy="${y}" r="18" fill="url(#gb)" stroke="${extra || '#b8904c'}" stroke-width="${extra ? 3 : 1.5}"/><circle cx="${x}" cy="${y}" r="11" fill="none" stroke="#c9a05a" stroke-opacity=".5" stroke-width="1.2"/>`;
+}
+function renderBoard(){
+  const humanMoves = G.phase === 'move' ? legal(cur()) : [];
+  const sources = new Set(humanMoves.map(m => m.from));
+  const dests = new Set(G.sel !== null ? humanMoves.filter(m => m.from === G.sel).map(m => m.to) : []);
+  let s = `<svg viewBox="-12 -14 606 468" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="gw" cx="38%" cy="32%" r="70%"><stop offset="0" stop-color="#fffaf0"/><stop offset=".7" stop-color="#ead9b8"/><stop offset="1" stop-color="#c9b28a"/></radialGradient>
+    <radialGradient id="gb" cx="38%" cy="32%" r="70%"><stop offset="0" stop-color="#5a3a26"/><stop offset=".6" stop-color="#2a170c"/><stop offset="1" stop-color="#140a04"/></radialGradient>
+    <linearGradient id="fld" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4a2e1a"/><stop offset=".5" stop-color="#3d2514"/><stop offset="1" stop-color="#47291a"/></linearGradient>
+    <linearGradient id="lt" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9b77c"/><stop offset="1" stop-color="#b8935a"/></linearGradient>
+    <linearGradient id="dk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a3324"/><stop offset="1" stop-color="#5e2017"/></linearGradient>
+  </defs>
+  <rect x="-12" y="-14" width="606" height="468" rx="14" fill="#22140b"/>
+  <rect x="0" y="0" width="520" height="440" fill="url(#fld)"/>
+  <rect x="240" y="0" width="40" height="440" fill="#2a190d"/>
+  <rect x="532" y="0" width="50" height="215" rx="6" fill="#2a190d"/>
+  <rect x="532" y="225" width="50" height="215" rx="6" fill="#2a190d" ${dests.has(24) ? 'stroke="#f3d27a" stroke-width="3"' : ''}/>`;
+  // bar ornament: inlay diamonds
+  for (let i = 0; i < 9; i++){ const y = 30 + i * 47.5; s += `<path d="M260 ${y - 9} L268 ${y} L260 ${y + 9} L252 ${y} Z" fill="none" stroke="#b8904c" stroke-opacity=".55" stroke-width="1.2"/>`; }
+  // points
+  for (let a = 0; a < 24; a++){
+    const p = pos(a), fill = (p.col + (p.top ? 0 : 1)) % 2 ? 'url(#dk)' : 'url(#lt)';
+    const pts = p.top ? `${p.x - 19},0 ${p.x + 19},0 ${p.x},176` : `${p.x - 19},440 ${p.x + 19},440 ${p.x},264`;
+    s += `<polygon points="${pts}" fill="${fill}"/>`;
+    if (dests.has(a)) s += `<polygon points="${pts}" fill="#f3d27a" fill-opacity=".55" stroke="#f3d27a" stroke-width="2"/>`;
+    if (G.botLanded.has(a)) s += `<circle cx="${p.x}" cy="${p.top ? 196 : 244}" r="4" fill="#e2b65e" fill-opacity=".8"/>`;
+    if (sources.has(a)) s += `<circle cx="${p.x}" cy="${p.top ? -7 : 447}" r="4" fill="#e2b65e"/>`;
+  }
+  // checkers
+  for (let a = 0; a < 24; a++){
+    const v = G.b[a]; if (!v) continue;
+    const n = Math.abs(v), pl = v > 0 ? 0 : 1, p = pos(a);
+    const sp = n <= 5 ? 36 : (176 - 36) / (n - 1);
+    for (let k = 0; k < n; k++){
+      const y = p.top ? 19 + k * sp : 421 - k * sp;
+      const isTop = k === n - 1;
+      s += checker(p.x, y, pl, isTop && G.sel === a ? '#f3d27a' : null);
+      if (isTop && n > 5) s += `<text x="${p.x}" y="${y + 4.5}" text-anchor="middle" font-family="Unbounded,sans-serif" font-size="13" font-weight="700" fill="${pl === 0 ? '#3a2414' : '#e2b65e'}">${n}</text>`;
+    }
+  }
+  // borne-off trays: black top, white bottom
+  for (let i = 0; i < G.off[1]; i++) s += `<rect x="537" y="${6 + i * 13}" width="40" height="10" rx="3" fill="#2a170c" stroke="#b8904c" stroke-width="1"/>`;
+  for (let i = 0; i < G.off[0]; i++) s += `<rect x="537" y="${424 - i * 13}" width="40" height="10" rx="3" fill="#ead9b8" stroke="#8c7450" stroke-width="1"/>`;
+  // hit areas
+  for (let a = 0; a < 24; a++){ const p = pos(a); s += `<rect data-a="${a}" x="${p.x - 20}" y="${p.top ? -14 : 220}" width="40" height="234" fill="transparent"/>`; }
+  s += `<rect data-a="off" x="532" y="225" width="50" height="215" fill="transparent"/></svg>`;
+  document.getElementById('board').innerHTML = s;
+}
+
+const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+const dieHTML = (v, used, bot) => `<div class="die${used ? ' used' : ''}${bot ? ' bot' : ''}" aria-label="${v}">` +
+  Array.from({ length: 9 }, (_, i) => PIPS[v].includes(i) ? '<span class="pip" style="grid-area:' + (Math.floor(i / 3) + 1) + '/' + (i % 3 + 1) + '"></span>' : '').join('') + '</div>';
+function renderDice(){
+  const el = document.getElementById('dice'), bot = G.turn === 1;
+  if (G.rolling){ el.innerHTML = G.rolling.map(v => dieHTML(v, false, bot)).join(''); return; }
+  if (!G.rolled.length || G.phase === 'roll'){ el.innerHTML = ''; return; }
+  const [a, b] = G.rolled;
+  if (a === b){ const usedN = 4 - G.dice.length; el.innerHTML = [0, 1, 2, 3].map(i => dieHTML(a, i < usedN, bot)).join(''); }
+  else el.innerHTML = dieHTML(a, !G.dice.includes(a), bot) + dieHTML(b, !G.dice.includes(b), bot);
+}
+function render(){
+  renderBoard(); renderDice();
+  document.getElementById('status').innerHTML = G.msg + (G.sub ? `<span class="sub">${G.sub}</span>` : '');
+  document.getElementById('sc0').textContent = G.score[0];
+  document.getElementById('sc1').textContent = G.score[1];
+  const rb = document.getElementById('rollBtn'), ub = document.getElementById('undoBtn'), db = document.getElementById('doneBtn');
+  rb.hidden = G.phase !== 'roll';
+  ub.hidden = db.hidden = !(G.phase === 'move' || G.phase === 'confirm');
+  ub.disabled = !G.snap || G.dice.length === G.snap.dice.length;
+  db.disabled = G.phase !== 'confirm';
+}
+
+document.getElementById('board').addEventListener('click', e => {
+  const t = e.target.closest('[data-a]'); if (!t || G.phase !== 'move') return;
+  const a = t.dataset.a === 'off' ? 'off' : +t.dataset.a;
+  const ms = legal(cur());
+  if (G.sel !== null){
+    const to = a === 'off' ? 24 : a;
+    const m = ms.find(m => m.from === G.sel && m.to === to);
+    if (m) return humanMove(m);
+  }
+  G.sel = (a !== 'off' && a !== G.sel && ms.some(m => m.from === a)) ? a : null;
+  render();
+});
+document.getElementById('rollBtn').addEventListener('click', humanRoll);
+document.getElementById('dice').addEventListener('click', humanRoll);
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('doneBtn').addEventListener('click', done);
+document.getElementById('newBtn').addEventListener('click', newGame);
+document.getElementById('againBtn').addEventListener('click', newGame);
+newGame();
+</script>
+</body>
+</html>
